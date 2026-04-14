@@ -26,10 +26,7 @@
 ## 🏁 快速开始
 
 ### 1. 基础设施准备 (推荐使用 Docker Compose)
-确保本地已安装 MySQL, Redis, RabbitMQ。或使用提供的配置文件一键拉起：
-\`\`\`bash
-docker-compose up -d
-\`\`\`
+确保已安装 MySQL, Redis, RabbitMQ。
 
 ### 2. 运行服务
 \`\`\`bash
@@ -39,3 +36,4 @@ go mod tidy
 go run main.go
 \`\`\`
 服务默认运行在 `http://localhost:8080`
+用户端运行在 `http://localhost:8080/user`
