@@ -1,36 +1,41 @@
-# ⚡ Go-Seckill-Fullstack | 高并发全栈秒杀系统
+# Go-Seckill-Backend | 高并发秒杀系统后端实战
 
-这是一个基于 **Go (Gin)** 和 **Redis** 构建的工业级高并发秒杀系统。项目涵盖了从前端用户抢购到后端异步入库、安全防护、缓存优化等全链路实战场景。
-
-## 🚀 核心架构设计
-
-项目采用 **"内存预减 + 异步落库"** 的高性能架构：
-
-1. **流量过滤：** 本地 **布隆过滤器** 拦截非法 ID。
-2. **安全验证：** **JWT** 中间件校验身份 + **图形验证码** 防机器刷单。
-3. **并发扣减：** **Redis Lua 脚本** 实现原子库存扣减。
-4. **异步削峰：** **Go Channel** 异步消费订单，平滑写入 **MySQL**。
-
-
+基于 Golang 构建的工业级高并发秒杀系统，专注于解决瞬间洪峰流量下的超卖、数据库击穿以及系统稳定性问题。架构演进从单机 Channel 削峰最终升级为 RabbitMQ 分布式消息队列架构。
 
 ## 🛠️ 技术栈
 
-- **后端：** Golang, Gin Web Framework, GORM (ORM)
-- **缓存/中间件：** Redis (Lua Scripting), Go Channels
-- **安全：** JWT (JSON Web Token), Base64 Captcha, Bloom Filter
-- **前端：** Vue 3, Element Plus, Axios
-- **存储：** MySQL 8.0
+- **语言与框架：** Golang, Gin, GORM
+- **数据存储：** MySQL 8.0, Redis 6.0
+- **消息队列：** RabbitMQ (AMQP)
+- **安全与风控：** JWT, Base64 Captcha, Bloom Filter
 
-## 📂 项目结构
+## 🚀 核心架构流转
 
-```text
-seckill-demo/
-├── controller/     # 控制层：处理 HTTP 请求与参数校验
-├── service/        # 业务层：核心秒杀逻辑、布隆过滤器、异步队列
-├── dao/            # 数据访问层：MySQL 与 Redis 初始化
-├── middleware/     # 中间件：JWT 鉴权、Cors 等
-├── model/          # 模型层：数据库表结构定义
-├── router/         # 路由层：API 路径管理与中间件挂载
-├── utils/          # 工具类：JWT 生成、图形验证码、加密等
-├── static/         # 前端：B端大屏 (index.html) 与 C端商城 (user.html)
-└── main.go         # 入口：程序初始化与服务启动
+1. **安全校验网关：** 请求进入系统，由中间件校验 JWT Token 与图形验证码，拦截非法用户与机器脚本。
+2. **前置拦截防御：** 本地 Bloom Filter 校验商品 ID，若判定为伪造 ID 则直接丢弃，防止缓存穿透。
+3. **内存原子扣减：** 请求到达 Redis，通过 Lua 脚本原子执行库存扣减与限购校验，成功则发放“通行证”。
+4. **异步削峰填谷：** 获取“通行证”的订单数据序列化后投入 RabbitMQ，直接响应前端。
+5. **平滑持久落库：** 后台消费者协程以平稳速率从 RabbitMQ 消费数据，开启 GORM 事务安全写入 MySQL，并手动执行 ACK 确认。
+
+## ✨ 亮点功能
+
+- **动态限购：** 摆脱 MySQL 唯一索引的死板限制，在 Redis Lua 层面实现针对单个用户的灵活限购。
+- **毒药消息防范：** 消费者端精确识别业务级死错误（如库存不足、重复数据），主动执行 `Nack(requeue=false)` 打断死循环。
+- **开箱即用：** 极简的代码结构，严格遵循 Controller-Service-DAO 分层规范。
+
+## 🏁 快速开始
+
+### 1. 基础设施准备 (推荐使用 Docker Compose)
+确保本地已安装 MySQL, Redis, RabbitMQ。或使用提供的配置文件一键拉起：
+\`\`\`bash
+docker-compose up -d
+\`\`\`
+
+### 2. 运行服务
+\`\`\`bash
+# 下载依赖
+go mod tidy
+# 启动
+go run main.go
+\`\`\`
+服务默认运行在 `http://localhost:8080`
