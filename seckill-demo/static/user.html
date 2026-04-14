@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>⚡ 极速秒杀商城 (C端安全版)</title>
+    <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+    <script src="https://unpkg.com/vue@3"></script>
+    <script src="https://unpkg.com/element-plus"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <style>
+        body { background: #f4f6f9; margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        .nav-bar { background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.05); padding: 0 40px; height: 60px; display: flex; justify-content: space-between; align-items: center; }
+        .logo { font-size: 22px; font-weight: bold; color: #e11d48; }
+        .container { max-width: 1200px; margin: 30px auto; padding: 0 20px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
+        .product-card { background: #fff; border-radius: 12px; overflow: hidden; transition: transform 0.2s; box-shadow: 0 4px 6px rgba(0,0,0,0.05); text-align: center; padding-bottom: 20px; border: 1px solid #eee; }
+        .product-card:hover { transform: translateY(-5px); box-shadow: 0 10px 15px rgba(0,0,0,0.1); }
+        .img-placeholder { height: 180px; background: linear-gradient(135deg, #fce7f3, #e0e7ff); display: flex; align-items: center; justify-content: center; font-size: 40px; }
+        .title { font-size: 18px; font-weight: 600; margin: 15px 0 5px; color: #333; }
+        .stock { font-size: 14px; color: #666; margin-bottom: 15px; }
+        .stock span { color: #e11d48; font-weight: bold; font-size: 18px; }
+        .qr-box { text-align: center; padding: 20px 0; }
+        .qr-box img { width: 180px; height: 180px; border: 1px solid #ddd; padding: 10px; border-radius: 10px; margin-bottom: 15px; }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="nav-bar">
+            <div class="logo">⚡ 极速秒杀商城</div>
+            <div>
+                <span v-if="user.id">
+                    欢迎回来，<b>{{user.username}}</b> 
+                    <el-button type="text" @click="logout" style="margin-left: 10px;">退出登录</el-button>
+                </span>
+                <el-button v-else type="primary" round @click="loginDialog = true">登录 / 注册</el-button>
+            </div>
+        </div>
+
+        <div class="container">
+            <h2 style="margin-bottom: 25px; color: #333;">📢 正在热卖</h2>
+            <div class="grid">
+                <div v-for="p in products" :key="p.id" class="product-card">
+                    <div class="img-placeholder">🎁</div>
+                    <div class="title">{{p.title}}</div>
+                    <div class="stock">仅剩 <span>{{p.stock}}</span> 件</div>
+                    <el-button type="danger" size="large" round style="width: 80%;" :disabled="p.stock <= 0" @click="handleBuyClick(p)">
+                        {{ p.stock > 0 ? '立即抢购' : '已抢空' }}
+                    </el-button>
+                </div>
+            </div>
+        </div>
+
+        <el-dialog v-model="loginDialog" title="用户认证" width="350px" :close-on-click-modal="false">
+            <el-tabs v-model="authTab">
+                <el-tab-pane label="登录" name="login">
+                    <el-input v-model="authForm.username" placeholder="用户名" style="margin-bottom: 15px;"></el-input>
+                    <el-input v-model="authForm.password" placeholder="密码" type="password" show-password style="margin-bottom: 15px;"></el-input>
+                    <el-button type="primary" style="width: 100%;" @click="doLogin">登 录</el-button>
+                </el-tab-pane>
+                <el-tab-pane label="注册" name="register">
+                    <el-input v-model="authForm.username" placeholder="设置用户名" style="margin-bottom: 15px;"></el-input>
+                    <el-input v-model="authForm.password" placeholder="设置密码" type="password" show-password style="margin-bottom: 15px;"></el-input>
+                    <el-button type="success" style="width: 100%;" @click="doRegister">注 册</el-button>
+                </el-tab-pane>
+            </el-tabs>
+        </el-dialog>
+
+        <el-dialog v-model="payDialog" title="安全支付" width="350px" center>
+            <div class="qr-box">
+                <h3 style="margin-top: 0; color: #333;">{{currentOrder.title}}</h3>
+                <img :src="'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=Seckill_Pay_' + currentOrder.id">
+            </div>
+            <template #footer>
+                <el-button @click="payDialog = false">取消</el-button>
+                <el-button type="danger" @click="simulatePaySuccess" :loading="paying">确认支付</el-button>
+            </template>
+        </el-dialog>
+    </div>
+
+    <script>
+        const { createApp, ref, onMounted } = Vue
+        createApp({
+            setup() {
+                const products = ref([])
+                const loginDialog = ref(false)
+                const payDialog = ref(false)
+                const paying = ref(false)
+                const authTab = ref('login')
+                const authForm = ref({ username: '', password: '' })
+                const currentOrder = ref({})
+                const user = ref({ 
+                    id: localStorage.getItem('sk_uid') || null, 
+                    username: localStorage.getItem('sk_uname') || '' 
+                })
+
+                // --- 🌟 1. 配置 Axios 全局请求拦截 ---
+                axios.interceptors.request.use(config => {
+                    const token = localStorage.getItem('sk_token')
+                    if (token) {
+                        config.headers.Authorization = 'Bearer ' + token
+                    }
+                    return config
+                })
+
+                // --- 🌟 2. 配置 Axios 全局响应拦截 (核心：实时处理身份失效) ---
+                axios.interceptors.response.use(
+                    response => {
+                        // 如果后端在 JSON 里返回了 401 业务码
+                        if (response.data && response.data.code === 401) {
+                            handleAuthError()
+                        }
+                        return response
+                    },
+                    error => {
+                        // 如果后端返回了 HTTP 401 状态码
+                        if (error.response && error.response.status === 401) {
+                            handleAuthError()
+                        }
+                        return Promise.reject(error)
+                    }
+                )
+
+                const handleAuthError = () => {
+                    ElementPlus.ElMessage.error("身份已过期，请重新登录")
+                    logout() // 清理数据
+                    loginDialog.value = true // 弹出登录
+                }
+
+                const fetchProducts = async () => {
+                    const res = await axios.get('/api/products?page=1&size=20')
+                    const rawList = res.data.list || res.data || []
+                    products.value = rawList.map(item => ({
+                        id: item.id || item.ID,
+                        title: item.title || item.Title || '神秘商品',
+                        stock: item.stock !== undefined ? item.stock : (item.Stock || 0)
+                    }))
+                }
+
+                const doLogin = async () => {
+                    const res = await axios.post('/api/login', authForm.value)
+                    if(res.data.code === 200) {
+                        user.value = { id: res.data.user_id, username: res.data.username }
+                        localStorage.setItem('sk_uid', res.data.user_id)
+                        localStorage.setItem('sk_uname', res.data.username)
+                        localStorage.setItem('sk_token', res.data.token)
+                        loginDialog.value = false
+                        ElementPlus.ElMessage.success("登录成功")
+                    } else {
+                        ElementPlus.ElMessage.error(res.data.msg)
+                    }
+                }
+
+                const logout = () => {
+                    localStorage.removeItem('sk_uid')
+                    localStorage.removeItem('sk_uname')
+                    localStorage.removeItem('sk_token')
+                    user.value = { id: null, username: '' } // 🌟 关键：清空 Vue 内存中的用户状态
+                }
+
+                const handleBuyClick = (p) => {
+                    if (!user.value.id) {
+                        loginDialog.value = true
+                        return
+                    }
+                    currentOrder.value = p
+                    payDialog.value = true
+                }
+
+                const simulatePaySuccess = async () => {
+                    paying.value = true
+                    try {
+                        const res = await axios.post('/api/seckill', { product_id: currentOrder.value.id })
+                        
+                        // 🌟 这里会触发响应拦截器，如果是 401 会直接跳走
+                        if (res.data.code === 200) {
+                            ElementPlus.ElMessage.success("支付成功！" + res.data.msg)
+                            payDialog.value = false
+                        } else if (res.data.code !== 401) {
+                            // 处理非 401 的其他错误（如库存不足、重复下单等）
+                            ElementPlus.ElMessage.warning(res.data.msg)
+                            payDialog.value = false
+                        }
+                    } catch (e) {
+                        console.error("请求失败", e)
+                    } finally {
+                        paying.value = false
+                        fetchProducts()
+                    }
+                }
+
+                onMounted(fetchProducts)
+                return { products, loginDialog, payDialog, paying, authTab, authForm, user, doLogin, logout, handleBuyClick, simulatePaySuccess, currentOrder, doRegister: async () => {} }
+            }
+        }).use(ElementPlus).mount('#app')
+    </script>
+</body>
+</html>
